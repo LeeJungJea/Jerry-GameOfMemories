@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jerry Game of Memories</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Jerry's Arcade</p>
+          <h1>Game of Memories</h1>
+        </div>
+        <nav class="tabs" aria-label="게임 선택">
+          <button class="tab active" data-game="klondike">클론다이크</button>
+          <button class="tab" data-game="spider">스파이더</button>
+          <button class="tab" data-game="freecell">프리셀</button>
+          <button class="tab" data-game="minesweeper">지뢰찾기</button>
+        </nav>
+      </header>
+
+      <section class="toolbar">
+        <div>
+          <h2 id="gameTitle">클론다이크 솔리테어</h2>
+          <p id="gameHint">A부터 K까지 네 무늬를 foundation에 올려보세요.</p>
+        </div>
+        <div class="actions" id="gameActions"></div>
+      </section>
+
+      <section id="gameRoot" class="game-root" aria-live="polite"></section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
