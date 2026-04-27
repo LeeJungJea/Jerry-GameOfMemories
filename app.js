@@ -3,6 +3,11 @@ const actions = document.querySelector("#gameActions");
 const title = document.querySelector("#gameTitle");
 const hint = document.querySelector("#gameHint");
 const tabs = [...document.querySelectorAll(".tab")];
+const confirmModal = document.querySelector("#confirmModal");
+const confirmTitle = document.querySelector("#confirmTitle");
+const confirmText = document.querySelector("#confirmText");
+const cancelRestart = document.querySelector("#cancelRestart");
+const confirmRestart = document.querySelector("#confirmRestart");
 
 const suits = ["spades", "hearts", "diamonds", "clubs"];
 const suitMarks = { spades: "♠", hearts: "♥", diamonds: "♦", clubs: "♣" };
@@ -15,6 +20,9 @@ let state = null;
 let drag = null;
 let mineTimer = null;
 let cardSeq = 0;
+let pendingGame = null;
+let pendingAction = null;
+let klondikeDrawCount = 1;
 
 const gameInfo = {
   klondike: ["클론다이크 솔리테어", "A부터 K까지 네 무늬를 foundation에 올려보세요."],
@@ -24,8 +32,63 @@ const gameInfo = {
 };
 
 tabs.forEach((tab) => {
-  tab.addEventListener("click", () => startGame(tab.dataset.game));
+  tab.addEventListener("click", () => handleTabClick(tab.dataset.game));
 });
+
+cancelRestart.addEventListener("click", closeRestartModal);
+confirmRestart.addEventListener("click", () => {
+  const action = pendingAction;
+  const game = pendingGame;
+  closeRestartModal();
+  if (action) action();
+  else if (game) startGame(game);
+});
+confirmModal.addEventListener("click", (event) => {
+  if (event.target === confirmModal) closeRestartModal();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeRestartModal();
+});
+
+function handleTabClick(game) {
+  if (!hasGameProgress()) {
+    startGame(game);
+    return;
+  }
+
+  openRestartModal({
+    game,
+    action: () => startGame(game),
+  });
+}
+
+function openRestartModal({ game = currentGame, action, text, confirmLabel } = {}) {
+  pendingGame = game;
+  pendingAction = action;
+  confirmTitle.textContent = "새 게임을 시작하겠습니까?";
+  confirmText.textContent =
+    text ||
+    (game === currentGame
+      ? `${gameInfo[game][0]} 진행 상황이 사라집니다.`
+      : `${gameInfo[currentGame][0]} 진행 상황이 사라지고 ${gameInfo[game][0]}으로 이동합니다.`);
+  confirmRestart.textContent = confirmLabel || (game === currentGame ? "새 게임" : "이동하기");
+  confirmModal.classList.remove("hidden");
+  confirmRestart.focus();
+}
+
+function closeRestartModal() {
+  pendingGame = null;
+  pendingAction = null;
+  confirmModal.classList.add("hidden");
+}
+
+function hasGameProgress() {
+  return Boolean(state?.dirty);
+}
+
+function markProgress() {
+  if (state) state.dirty = true;
+}
 
 function startGame(game) {
   clearInterval(mineTimer);
@@ -63,7 +126,7 @@ function select(options, onChange) {
     option.textContent = label;
     el.append(option);
   });
-  el.addEventListener("change", () => onChange(el.value));
+  el.addEventListener("change", (event) => onChange(el.value, event, el));
   actions.append(el);
   return el;
 }
@@ -257,6 +320,7 @@ function onDrop(event) {
 }
 
 function afterMove() {
+  markProgress();
   if (currentGame === "spider") clearSpiderRuns();
   renderCurrent();
 }
@@ -268,14 +332,19 @@ function autoMove(cardId, source, index) {
   if (!card || index !== pile.length - 1) return;
   const foundationIndex = state.foundation.findIndex((foundation) => canFoundation(card, foundation));
   if (foundationIndex === -1) return;
+  markProgress();
   pile.pop();
   revealLastTableau(source);
   state.foundation[foundationIndex].push(card);
   renderCurrent();
 }
 
-function initKlondike() {
+function initKlondike(drawCount = klondikeDrawCount) {
+  actions.innerHTML = "";
+  klondikeDrawCount = Number(drawCount);
   state = {
+    dirty: false,
+    drawCount: klondikeDrawCount,
     stock: shuffle(deck()),
     waste: [],
     foundation: [[], [], [], []],
@@ -288,16 +357,48 @@ function initKlondike() {
       state.tableau[column].push(card);
     }
   }
-  button("새 게임", initKlondike, true);
+  button("새 게임", () => initKlondike(state.drawCount), true);
+  const drawMode = select(
+    [
+      [1, "1장 넘기기"],
+      [3, "3장 넘기기"],
+    ],
+    handleKlondikeDrawModeChange,
+  );
+  drawMode.value = String(state.drawCount);
   button("카드 넘기기", drawKlondike);
   renderCurrent();
 }
 
+function handleKlondikeDrawModeChange(value, event, drawMode) {
+  const nextDrawCount = Number(value);
+  if (nextDrawCount === state.drawCount) return;
+
+  if (!hasGameProgress()) {
+    initKlondike(nextDrawCount);
+    return;
+  }
+
+  const previousDrawCount = state.drawCount;
+  if (drawMode) drawMode.value = String(previousDrawCount);
+
+  openRestartModal({
+    game: "klondike",
+    action: () => initKlondike(nextDrawCount),
+    text: `넘기기 옵션을 ${nextDrawCount}장으로 바꾸면 현재 클론다이크 진행 상황이 사라집니다.`,
+    confirmLabel: "변경하기",
+  });
+}
+
 function drawKlondike() {
+  markProgress();
   if (state.stock.length) {
-    const card = state.stock.pop();
-    card.faceUp = true;
-    state.waste.push(card);
+    const count = Math.min(state.drawCount, state.stock.length);
+    for (let index = 0; index < count; index++) {
+      const card = state.stock.pop();
+      card.faceUp = true;
+      state.waste.push(card);
+    }
   } else {
     state.stock = state.waste.reverse().map((card) => ({ ...card, faceUp: false }));
     state.waste = [];
@@ -306,8 +407,10 @@ function drawKlondike() {
 }
 
 function initFreeCell() {
+  actions.innerHTML = "";
   const cards = shuffle(deck()).map((card) => ({ ...card, faceUp: true }));
   state = {
+    dirty: false,
     free: [[], [], [], []],
     foundation: [[], [], [], []],
     tableau: Array.from({ length: 8 }, () => []),
@@ -322,6 +425,7 @@ function initSpider(suitCount = 1) {
   const packs = 8 / activeSuits.length;
   const cards = shuffle(deck(packs, activeSuits));
   state = {
+    dirty: false,
     stock: [],
     completed: 0,
     tableau: Array.from({ length: 10 }, () => []),
@@ -355,6 +459,7 @@ function initSpider(suitCount = 1) {
 
 function dealSpider() {
   if (!state.stock.length || state.tableau.some((pile) => pile.length === 0)) return;
+  markProgress();
   const row = state.stock.pop();
   row.forEach((card, index) => {
     card.faceUp = true;
@@ -399,7 +504,7 @@ function renderKlondike() {
     back.textContent = state.stock.length;
     stock.append(back);
   }
-  left.append(stock, renderTopPile("", "waste-0", state.waste, "waste-0"));
+  left.append(stock, renderWastePile());
 
   const foundations = document.createElement("div");
   foundations.className = "pile-group";
@@ -413,6 +518,24 @@ function renderKlondike() {
 
   board.append(top, tableau, winMessage(state.foundation.flat().length === 52, "클론다이크 클리어!"));
   root.append(board);
+}
+
+function renderWastePile() {
+  const pile = renderPile("", "waste-0", [], "waste-0", 0);
+  const visible = state.waste.slice(-state.drawCount);
+  const startIndex = state.waste.length - visible.length;
+  visible.forEach((card, index) => {
+    const cardEl = renderCard(card, "waste-0", startIndex + index, 0);
+    cardEl.style.left = `${index * 24}px`;
+    cardEl.style.top = "0";
+    if (index < visible.length - 1) {
+      cardEl.draggable = false;
+      cardEl.removeAttribute("draggable");
+    }
+    pile.append(cardEl);
+  });
+  pile.style.width = `${82 + Math.max(0, visible.length - 1) * 24}px`;
+  return pile;
 }
 
 function renderFreeCell() {
@@ -492,6 +615,7 @@ function initMinesweeper(size = 16, mineCount = 40) {
   difficulty.value = `${size},${mineCount}`;
 
   state = {
+    dirty: false,
     size,
     mineCount,
     started: false,
@@ -548,6 +672,7 @@ function neighbors(index) {
 function openCell(index) {
   const cell = state.board[index];
   if (state.ended || cell.open || cell.flagged) return;
+  markProgress();
   if (!state.started) {
     state.started = true;
     plantMines(index);
@@ -573,6 +698,7 @@ function openCell(index) {
 function toggleFlag(index) {
   const cell = state.board[index];
   if (state.ended || cell.open) return;
+  markProgress();
   cell.flagged = !cell.flagged;
   state.flags += cell.flagged ? 1 : -1;
   checkMineWin();
