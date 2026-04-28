@@ -35,30 +35,12 @@ async function getRankings(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const overall = url.searchParams.get("overall") === "true";
   const limit = clamp(Number(url.searchParams.get("limit") || 10), 1, 100);
+  const userId = normalizeUserId(url.searchParams.get("userId"));
 
   if (overall) {
-    const rows = await sql`
-      with best_per_mode as (
-        select distinct on (r.user_pk, r.game, r.mode)
-          r.user_pk, u.user_id, u.nickname, r.game, r.mode, r.score, r.seconds, r.moves, r.created_at
-        from ranking_records r
-        join users u on u.id = r.user_pk
-        where r.won = true
-        order by r.user_pk, r.game, r.mode, r.score desc, r.seconds asc, r.moves asc nulls last, r.created_at asc
-      )
-      select
-        user_id,
-        nickname,
-        sum(score)::int as total_score,
-        count(*)::int as completed_modes,
-        sum(seconds)::int as total_seconds,
-        sum(coalesce(moves, 0))::int as total_moves
-      from best_per_mode
-      group by user_pk, user_id, nickname
-      order by total_score desc, completed_modes desc, total_seconds asc
-      limit ${limit}
-    `;
-    return sendJson(response, 200, { rankings: rows });
+    const rankings = await getOverallRankings(limit);
+    const me = userId ? await getOverallUserRank(userId) : null;
+    return sendJson(response, 200, { rankings, me });
   }
 
   const game = url.searchParams.get("game");
@@ -67,15 +49,149 @@ async function getRankings(request, response) {
     return sendJson(response, 400, { error: "Valid game and mode are required." });
   }
 
-  const rows = await sql`
-    select u.user_id, u.nickname, r.game, r.mode, r.score, r.moves, r.seconds, r.created_at
-    from ranking_records r
-    join users u on u.id = r.user_pk
-    where r.won = true and r.game = ${game} and r.mode = ${mode}
-    order by r.score desc, r.seconds asc, r.moves asc nulls last, r.created_at asc
+  const rankings = await getModeRankings(game, mode, limit);
+  const me = userId ? await getModeUserRank(userId, game, mode) : null;
+  return sendJson(response, 200, { rankings, me });
+}
+
+async function getOverallRankings(limit) {
+  return sql`
+    with best_per_mode as (
+      select distinct on (r.user_pk, r.game, r.mode)
+        r.user_pk, u.user_id, u.nickname, r.game, r.mode, r.score, r.seconds, r.moves, r.created_at
+      from ranking_records r
+      join users u on u.id = r.user_pk
+      where r.won = true
+      order by r.user_pk, r.game, r.mode, r.score desc, r.seconds asc, r.moves asc nulls last, r.created_at asc
+    ),
+    totals as (
+      select
+        user_pk,
+        user_id,
+        nickname,
+        sum(score)::int as total_score,
+        count(*)::int as completed_modes,
+        sum(seconds)::int as total_seconds,
+        sum(coalesce(moves, 0))::int as total_moves
+      from best_per_mode
+      group by user_pk, user_id, nickname
+    ),
+    ranked as (
+      select
+        rank() over (order by total_score desc, completed_modes desc, total_seconds asc, total_moves asc)::int as rank,
+        user_id,
+        nickname,
+        total_score,
+        completed_modes,
+        total_seconds,
+        total_moves
+      from totals
+    )
+    select rank, user_id, nickname, total_score, completed_modes, total_seconds, total_moves
+    from ranked
+    order by rank asc
     limit ${limit}
   `;
-  return sendJson(response, 200, { rankings: rows });
+}
+
+async function getOverallUserRank(userId) {
+  const rows = await sql`
+    with best_per_mode as (
+      select distinct on (r.user_pk, r.game, r.mode)
+        r.user_pk, u.user_id, u.nickname, r.game, r.mode, r.score, r.seconds, r.moves, r.created_at
+      from ranking_records r
+      join users u on u.id = r.user_pk
+      where r.won = true
+      order by r.user_pk, r.game, r.mode, r.score desc, r.seconds asc, r.moves asc nulls last, r.created_at asc
+    ),
+    totals as (
+      select
+        user_pk,
+        user_id,
+        nickname,
+        sum(score)::int as total_score,
+        count(*)::int as completed_modes,
+        sum(seconds)::int as total_seconds,
+        sum(coalesce(moves, 0))::int as total_moves
+      from best_per_mode
+      group by user_pk, user_id, nickname
+    ),
+    ranked as (
+      select
+        rank() over (order by total_score desc, completed_modes desc, total_seconds asc, total_moves asc)::int as rank,
+        user_id,
+        nickname,
+        total_score,
+        completed_modes,
+        total_seconds,
+        total_moves
+      from totals
+    )
+    select rank, user_id, nickname, total_score, completed_modes, total_seconds, total_moves
+    from ranked
+    where user_id = ${userId}
+  `;
+  return rows[0] || null;
+}
+
+async function getModeRankings(game, mode, limit) {
+  return sql`
+    with best_per_user as (
+      select distinct on (r.user_pk)
+        r.user_pk, u.user_id, u.nickname, r.game, r.mode, r.score, r.moves, r.seconds, r.created_at
+      from ranking_records r
+      join users u on u.id = r.user_pk
+      where r.won = true and r.game = ${game} and r.mode = ${mode}
+      order by r.user_pk, r.score desc, r.seconds asc, r.moves asc nulls last, r.created_at asc
+    ),
+    ranked as (
+      select
+        rank() over (order by score desc, seconds asc, moves asc nulls last, created_at asc)::int as rank,
+        user_id,
+        nickname,
+        game,
+        mode,
+        score,
+        moves,
+        seconds,
+        created_at
+      from best_per_user
+    )
+    select rank, user_id, nickname, game, mode, score, moves, seconds, created_at
+    from ranked
+    order by rank asc
+    limit ${limit}
+  `;
+}
+
+async function getModeUserRank(userId, game, mode) {
+  const rows = await sql`
+    with best_per_user as (
+      select distinct on (r.user_pk)
+        r.user_pk, u.user_id, u.nickname, r.game, r.mode, r.score, r.moves, r.seconds, r.created_at
+      from ranking_records r
+      join users u on u.id = r.user_pk
+      where r.won = true and r.game = ${game} and r.mode = ${mode}
+      order by r.user_pk, r.score desc, r.seconds asc, r.moves asc nulls last, r.created_at asc
+    ),
+    ranked as (
+      select
+        rank() over (order by score desc, seconds asc, moves asc nulls last, created_at asc)::int as rank,
+        user_id,
+        nickname,
+        game,
+        mode,
+        score,
+        moves,
+        seconds,
+        created_at
+      from best_per_user
+    )
+    select rank, user_id, nickname, game, mode, score, moves, seconds, created_at
+    from ranked
+    where user_id = ${userId}
+  `;
+  return rows[0] || null;
 }
 
 async function createRanking(request, response) {
@@ -130,6 +246,11 @@ function normalizeRecord(body) {
   if (moves !== null && (!Number.isInteger(moves) || moves < 0)) return null;
 
   return { userId, game, mode, score, moves, seconds };
+}
+
+function normalizeUserId(value) {
+  const userId = String(value || "").trim().slice(0, 32);
+  return /^[A-Za-z0-9_]{4,32}$/.test(userId) ? userId : null;
 }
 
 function readJson(request) {

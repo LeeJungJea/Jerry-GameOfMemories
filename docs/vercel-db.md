@@ -14,12 +14,18 @@ This project is prepared for a Vercel Marketplace Postgres database.
 
 Run the SQL in `db/schema.sql` against the Postgres database.
 
-The schema stores login identity and ranking display separately:
+The schema stores profile identity and login methods separately:
 
-- `users.user_id`: login ID, unique
-- `users.password_hash`: hashed password only, never a plain password
 - `users.nickname`: display name shown on rankings, unique
-- `ranking_records.user_pk`: linked user record
+- `users.email`: optional profile email, useful for future OAuth
+- `users.image_url`: optional profile image, useful for future OAuth
+- `auth_accounts.provider`: `password`, `google`, or `kakao`
+- `auth_accounts.login_id`: local password login ID
+- `auth_accounts.provider_account_id`: Google/Kakao account ID
+- `auth_accounts.password_hash`: hashed password for local password login only
+- `ranking_records.user_pk`: linked user profile record
+
+This lets local password login work now while leaving room to attach Google or Kakao login to the same `users` profile later. Rankings always display `users.nickname`.
 
 ## 3. API endpoints
 

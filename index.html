@@ -13,23 +13,32 @@
           <p class="eyebrow">Jerry's Arcade</p>
           <h1>Game of Memories</h1>
         </div>
-        <nav class="tabs" aria-label="게임 선택">
-          <button class="tab active" data-game="klondike">클론다이크</button>
-          <button class="tab" data-game="spider">스파이더</button>
-          <button class="tab" data-game="freecell">프리셀</button>
-          <button class="tab" data-game="minesweeper">지뢰찾기</button>
-        </nav>
+        <div class="user-status" id="userStatus"></div>
       </header>
 
-      <section class="toolbar">
-        <div>
-          <h2 id="gameTitle">클론다이크 솔리테어</h2>
-          <p id="gameHint">A부터 K까지 네 무늬를 foundation에 올려보세요.</p>
-        </div>
-        <div class="actions" id="gameActions"></div>
-      </section>
+      <section id="homeScreen" class="home-screen" aria-live="polite"></section>
 
-      <section id="gameRoot" class="game-root" aria-live="polite"></section>
+      <section id="gameScreen" class="game-screen hidden">
+        <div class="game-nav">
+          <button class="action home-action" type="button" id="gameHomeButton">← 메인</button>
+          <nav class="tabs" aria-label="게임 선택">
+            <button class="tab active" data-game="klondike">클론다이크</button>
+            <button class="tab" data-game="spider">스파이더</button>
+            <button class="tab" data-game="freecell">프리셀</button>
+            <button class="tab" data-game="minesweeper">지뢰찾기</button>
+          </nav>
+        </div>
+
+        <section class="toolbar">
+          <div>
+            <h2 id="gameTitle">클론다이크 솔리테어</h2>
+            <p id="gameHint">A부터 K까지 네 무늬를 foundation에 올려보세요.</p>
+          </div>
+          <div class="actions" id="gameActions"></div>
+        </section>
+
+        <section id="gameRoot" class="game-root" aria-live="polite"></section>
+      </section>
     </main>
 
     <div class="modal-backdrop hidden" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
@@ -40,6 +49,26 @@
           <button class="action" type="button" id="cancelRestart">취소</button>
           <button class="action primary" type="button" id="confirmRestart">새 게임</button>
         </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <div class="modal">
+        <h3 id="authTitle">로그인</h3>
+        <div class="auth-tabs">
+          <button class="action primary" type="button" data-auth-mode="login">로그인</button>
+          <button class="action" type="button" data-auth-mode="register">회원가입</button>
+        </div>
+        <form class="auth-form" id="authForm">
+          <label>아이디<input name="userId" autocomplete="username" required minlength="4" maxlength="32" /></label>
+          <label id="nicknameField" class="hidden">닉네임<input name="nickname" maxlength="32" /></label>
+          <label>비밀번호<input name="password" type="password" autocomplete="current-password" required minlength="8" /></label>
+          <div class="modal-actions">
+            <button class="action" type="button" id="cancelAuth">취소</button>
+            <button class="action primary" type="submit" id="submitAuth">로그인</button>
+          </div>
+        </form>
+        <p class="form-message" id="authMessage"></p>
       </div>
     </div>
 
