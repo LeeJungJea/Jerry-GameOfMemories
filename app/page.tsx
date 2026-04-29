@@ -53,7 +53,12 @@ export default function HomePage() {
             <div className="actions" id="gameActions" />
           </section>
 
-          <section id="gameRoot" className="game-root" aria-live="polite" />
+          <div className="game-play-layout">
+            <section id="gameRoot" className="game-root" aria-live="polite" />
+            <aside className="game-ranking-panel" aria-label="현재 게임 랭킹">
+              <div id="gameSideRanking" />
+            </aside>
+          </div>
         </section>
       </main>
 

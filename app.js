@@ -1,4 +1,5 @@
 const root = document.querySelector("#gameRoot");
+const gameSideRanking = document.querySelector("#gameSideRanking");
 const actions = document.querySelector("#gameActions");
 const title = document.querySelector("#gameTitle");
 const hint = document.querySelector("#gameHint");
@@ -55,17 +56,23 @@ const gameCards = [
   ["minesweeper", "지뢰찾기", "숫자를 따라 안전 칸을 찾아내기"],
 ];
 
-const rankingModes = [
-  { mode: "overall", label: "종합 랭킹", game: "overall" },
-  { mode: "klondike-draw-1", label: "클론다이크 1장", game: "klondike" },
-  { mode: "klondike-draw-3", label: "클론다이크 3장", game: "klondike" },
-  { mode: "spider-1-suit", label: "스파이더 1벌", game: "spider" },
-  { mode: "spider-2-suit", label: "스파이더 2벌", game: "spider" },
-  { mode: "spider-4-suit", label: "스파이더 4벌", game: "spider" },
-  { mode: "freecell-standard", label: "프리셀", game: "freecell" },
-  { mode: "minesweeper-beginner", label: "지뢰찾기 초급", game: "minesweeper" },
-  { mode: "minesweeper-intermediate", label: "지뢰찾기 중급", game: "minesweeper" },
-  { mode: "minesweeper-expert", label: "지뢰찾기 고급", game: "minesweeper" },
+const rankingSummaryModes = [
+  { kind: "score", mode: "overall", label: "주간 점수 랭킹", game: "overall", period: "weekly" },
+  { kind: "score", mode: "overall", label: "전체 점수 랭킹", game: "overall", period: "all" },
+  { kind: "activity", mode: "activity", label: "오늘 최다 클리어", game: "activity", period: "daily" },
+  { kind: "activity", mode: "activity", label: "이번 주 최다 클리어", game: "activity", period: "weekly" },
+];
+
+const gameRankingModes = [
+  { kind: "score", mode: "klondike-draw-1", label: "클론다이크 1장", game: "klondike", period: "weekly" },
+  { kind: "score", mode: "klondike-draw-3", label: "클론다이크 3장", game: "klondike", period: "weekly" },
+  { kind: "score", mode: "spider-1-suit", label: "스파이더 1벌", game: "spider", period: "weekly" },
+  { kind: "score", mode: "spider-2-suit", label: "스파이더 2벌", game: "spider", period: "weekly" },
+  { kind: "score", mode: "spider-4-suit", label: "스파이더 4벌", game: "spider", period: "weekly" },
+  { kind: "score", mode: "freecell-standard", label: "프리셀", game: "freecell", period: "weekly" },
+  { kind: "score", mode: "minesweeper-beginner", label: "지뢰찾기 초급", game: "minesweeper", period: "weekly" },
+  { kind: "score", mode: "minesweeper-intermediate", label: "지뢰찾기 중급", game: "minesweeper", period: "weekly" },
+  { kind: "score", mode: "minesweeper-expert", label: "지뢰찾기 고급", game: "minesweeper", period: "weekly" },
 ];
 
 tabs.forEach((tab) => {
@@ -239,6 +246,7 @@ function startGame(game) {
   if (game === "klondike") initKlondike();
   if (game === "freecell") initFreeCell();
   if (game === "spider") initSpider();
+  loadGameSideRanking();
 }
 
 function renderUserStatus() {
@@ -285,10 +293,18 @@ function renderHome() {
 
     <section class="home-panel ranking-panel">
       <div class="panel-head">
-        <h2>랭킹</h2>
-        <p>종합 랭킹과 모든 게임 모드의 상위 기록을 확인합니다.</p>
+        <h2>랭킹 요약</h2>
+        <p>잘하는 사람과 많이 하는 사람을 함께 보여줍니다.</p>
       </div>
-      <div class="ranking-board" id="rankingBoard"></div>
+      <div class="ranking-board summary-board" id="summaryRankingBoard"></div>
+    </section>
+
+    <section class="home-panel ranking-panel">
+      <div class="panel-head">
+        <h2>게임별 주간 랭킹</h2>
+        <p>각 게임과 난이도별 이번 주 최고 점수입니다.</p>
+      </div>
+      <div class="ranking-board" id="gameRankingBoard"></div>
     </section>
   `;
 
@@ -299,22 +315,68 @@ function renderHome() {
 }
 
 async function loadRankingBoard() {
-  const board = homeScreen.querySelector("#rankingBoard");
-  board.innerHTML = rankingModes
-    .map(({ label }) => rankingCardTemplate(label, "랭킹을 불러오는 중입니다."))
-    .join("");
+  await Promise.all([loadRankingSection("#summaryRankingBoard", rankingSummaryModes), loadRankingSection("#gameRankingBoard", gameRankingModes)]);
+}
 
-  const results = await Promise.allSettled(rankingModes.map((config) => fetchRanking(config)));
+async function loadRankingSection(selector, configs) {
+  const board = homeScreen.querySelector(selector);
+  board.innerHTML = configs.map(({ label }) => rankingCardTemplate(label, "랭킹을 불러오는 중입니다.")).join("");
+
+  const results = await Promise.allSettled(configs.map((config) => fetchRanking(config)));
   board.innerHTML = results
     .map((result, index) => {
-      const config = rankingModes[index];
+      const config = configs[index];
       if (result.status === "rejected") return rankingCardTemplate(config.label, "랭킹 API 연결 전입니다.");
-      return rankingCardTemplate(config.label, renderRankingRows(result.value.rankings, config.mode === "overall"), result.value.me);
+      return rankingCardTemplate(
+        config.label,
+        renderRankingRows(result.value.rankings, config.kind === "score" && config.mode === "overall", config.kind),
+        result.value.me,
+      );
     })
     .join("");
 }
 
-async function fetchRanking({ mode, game }) {
+async function loadGameSideRanking() {
+  if (!gameSideRanking || gameScreen.classList.contains("hidden") || !state) return;
+  const config = getCurrentRankingConfig();
+  if (!config) {
+    gameSideRanking.innerHTML = "";
+    return;
+  }
+
+  const requestedMode = config.mode;
+  const activityConfig = { ...config, kind: "activity", period: "daily" };
+  gameSideRanking.innerHTML = [
+    rankingCardTemplate(`${config.label} 주간 랭킹`, "랭킹을 불러오는 중입니다."),
+    rankingCardTemplate(`${config.label} 오늘 클리어 횟수`, "랭킹을 불러오는 중입니다."),
+  ].join("");
+  try {
+    const [scoreResult, activityResult] = await Promise.all([fetchRanking(config), fetchRanking(activityConfig)]);
+    if (getCurrentMode() !== requestedMode || gameScreen.classList.contains("hidden")) return;
+    gameSideRanking.innerHTML = [
+      rankingCardTemplate(`${config.label} 주간 랭킹`, renderRankingRows(scoreResult.rankings, false), scoreResult.me),
+      rankingCardTemplate(
+        `${config.label} 오늘 클리어 횟수`,
+        renderRankingRows(activityResult.rankings, false, "activity"),
+        activityResult.me,
+      ),
+    ].join("");
+  } catch (error) {
+    if (getCurrentMode() !== requestedMode || gameScreen.classList.contains("hidden")) return;
+    gameSideRanking.innerHTML = [
+      rankingCardTemplate(`${config.label} 주간 랭킹`, "랭킹 API 연결 전입니다."),
+      rankingCardTemplate(`${config.label} 오늘 클리어 횟수`, "랭킹 API 연결 전입니다."),
+    ].join("");
+  }
+}
+
+function getCurrentRankingConfig() {
+  const mode = getCurrentMode();
+  if (!mode) return null;
+  return gameRankingModes.find((config) => config.mode === mode) || null;
+}
+
+async function fetchRanking({ kind, mode, game, period }) {
   try {
     const userQuery =
       currentUser && !currentUser.guest && currentUser.id
@@ -322,10 +384,17 @@ async function fetchRanking({ mode, game }) {
         : currentUser && !currentUser.guest && currentUser.user_id
           ? `&userId=${encodeURIComponent(currentUser.user_id)}`
           : "";
+    const periodQuery = `&period=${encodeURIComponent(period || "weekly")}`;
+    const activityFilterQuery =
+      kind === "activity" && game && game !== "activity"
+        ? `${game ? `&game=${encodeURIComponent(game)}` : ""}${mode ? `&mode=${encodeURIComponent(mode)}` : ""}`
+        : "";
     const url =
-      mode === "overall"
-        ? `/api/rankings?overall=true&limit=5${userQuery}`
-        : `/api/rankings?game=${game}&mode=${mode}&limit=5${userQuery}`;
+      kind === "activity"
+        ? `/api/rankings?kind=activity&limit=5${activityFilterQuery}${periodQuery}${userQuery}`
+        : mode === "overall"
+          ? `/api/rankings?overall=true&limit=5${periodQuery}${userQuery}`
+          : `/api/rankings?game=${game}&mode=${mode}&limit=5${periodQuery}${userQuery}`;
     const response = await fetch(url);
     if (!response.ok) throw new Error("Ranking request failed.");
     return response.json();
@@ -352,19 +421,21 @@ function renderMyRankBadge(me) {
   return `<span class="my-rank">내 순위 ${me.rank}위</span>`;
 }
 
-function renderRankingRows(rows, overall) {
+function renderRankingRows(rows, overall, kind = "score") {
   if (!rows.length) return `<p class="empty-ranking">아직 기록이 없습니다.</p>`;
   return rows
     .map((row, index) => {
-      const score = overall ? row.total_score : row.score;
+      const score = kind === "activity" ? `${row.clears}회` : overall ? row.total_score : row.score;
       const seconds = overall ? row.total_seconds : row.seconds;
       const moves = overall ? row.total_moves : row.moves;
+      const displayName = row.nickname || row.user_id || "Player";
+      const safeName = escapeHtml(displayName);
       return `
         <div class="ranking-row">
           <strong>${index + 1}</strong>
-          <span>${escapeHtml(row.nickname || row.user_id || "Player")}</span>
+          <span title="${safeName}" tabindex="0">${safeName}</span>
           <b>${score}</b>
-          <small>${seconds}s${moves ? ` · ${moves} moves` : ""}</small>
+          <small>${kind === "activity" ? `${row.total_score}점 · ${row.total_seconds}s` : `${seconds}s${moves ? ` · ${moves} moves` : ""}`}</small>
         </div>
       `;
     })
@@ -499,6 +570,15 @@ function renderCard(card, source, index, offset = index) {
     el.addEventListener("dragstart", onDragStart);
     el.addEventListener("dragend", onDragEnd);
     el.addEventListener("dblclick", () => autoMove(card.id, source, index));
+  }
+
+  if (state?.animatingDeal?.has(card.id)) {
+    el.classList.add("deal-in");
+    el.style.animationDelay = `${Math.min(index, 9) * 45}ms`;
+  }
+  if (state?.animatingComplete?.has(card.id)) {
+    el.classList.add("complete-out");
+    el.style.animationDelay = `${Math.min(index, 12) * 28}ms`;
   }
 
   return el;
@@ -701,6 +781,7 @@ function afterMove() {
   recordMove();
   if (currentGame === "spider") clearSpiderRuns();
   renderCurrent();
+  loadGameSideRanking();
 }
 
 function autoMove(cardId, source, index) {
@@ -715,6 +796,7 @@ function autoMove(cardId, source, index) {
   revealLastTableau(source);
   state.foundation[foundationIndex].push(card);
   renderCurrent();
+  loadGameSideRanking();
 }
 
 function initKlondike(drawCount = klondikeDrawCount) {
@@ -750,6 +832,7 @@ function initKlondike(drawCount = klondikeDrawCount) {
   drawMode.value = String(state.drawCount);
   button("카드 넘기기", drawKlondike);
   renderCurrent();
+  loadGameSideRanking();
 }
 
 function handleKlondikeDrawModeChange(value, event, drawMode) {
@@ -786,6 +869,7 @@ function drawKlondike() {
     state.waste = [];
   }
   renderCurrent();
+  loadGameSideRanking();
 }
 
 function initFreeCell() {
@@ -804,6 +888,7 @@ function initFreeCell() {
   cards.forEach((card, index) => state.tableau[index % 8].push(card));
   button("새 게임", initFreeCell, true);
   renderCurrent();
+  loadGameSideRanking();
 }
 
 function initSpider(suitCount = 1) {
@@ -819,6 +904,9 @@ function initSpider(suitCount = 1) {
     suitCount,
     stock: [],
     completed: 0,
+    pendingRunRemoval: false,
+    animatingDeal: new Set(),
+    animatingComplete: new Set(),
     tableau: Array.from({ length: 10 }, () => []),
   };
   for (let column = 0; column < 10; column++) {
@@ -846,28 +934,52 @@ function initSpider(suitCount = 1) {
   mode.value = String(suitCount);
   button("한 줄 배분", dealSpider);
   renderCurrent();
+  loadGameSideRanking();
 }
 
 function dealSpider() {
   if (!state.stock.length || state.tableau.some((pile) => pile.length === 0)) return;
   recordMove();
   const row = state.stock.pop();
+  state.animatingDeal = new Set(row.map((card) => card.id));
   row.forEach((card, index) => {
     card.faceUp = true;
     state.tableau[index].push(card);
   });
-  clearSpiderRuns();
   renderCurrent();
+  loadGameSideRanking();
+  setTimeout(() => {
+    if (currentGame !== "spider" || !state) return;
+    state.animatingDeal.clear();
+    clearSpiderRuns();
+    renderCurrent();
+    loadGameSideRanking();
+  }, 620);
 }
 
 function clearSpiderRuns() {
+  if (state.pendingRunRemoval) return;
   for (const pile of state.tableau) {
     if (pile.length < 13) continue;
     const run = pile.slice(-13);
     if (run[0].value === 13 && run[12].value === 1 && isSameSuitRun(run)) {
-      pile.splice(-13);
-      state.completed += 1;
-      if (pile.length && !pile[pile.length - 1].faceUp) pile[pile.length - 1].faceUp = true;
+      state.pendingRunRemoval = true;
+      state.animatingComplete = new Set(run.map((card) => card.id));
+      renderCurrent();
+      setTimeout(() => {
+        if (currentGame !== "spider" || !state) return;
+        const currentRun = pile.slice(-13);
+        if (currentRun.length === 13 && currentRun.every((card, index) => card.id === run[index].id)) {
+          pile.splice(-13);
+          state.completed += 1;
+          if (pile.length && !pile[pile.length - 1].faceUp) pile[pile.length - 1].faceUp = true;
+        }
+        state.animatingComplete.clear();
+        state.pendingRunRemoval = false;
+        renderCurrent();
+        loadGameSideRanking();
+      }, 720);
+      return;
     }
   }
 }
@@ -1040,6 +1152,7 @@ async function saveRanking(score) {
     state.rankingStatus = "랭킹 저장에 실패했습니다.";
   }
   updateScoreRankingStatus();
+  loadGameSideRanking();
 }
 
 function getCurrentMode() {
@@ -1140,6 +1253,7 @@ function initMinesweeper(size = 16, mineCount = 40) {
     })),
   };
   renderMinesweeper();
+  loadGameSideRanking();
 }
 
 function startMineTimer() {
